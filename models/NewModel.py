@@ -1,9 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import config
 
 class CRNNModel2(nn.Module):
-    def __init__(self, mel_bins=229, num_classes=88, hidden_size=256):
+    def __init__(self, mel_bins=config.mel_bins, num_classes=config.num_classes, hidden_size=256):
         super(CRNNModel2, self).__init__()
 
         # Define the number of filters and kernel sizes for Conv1D layers
