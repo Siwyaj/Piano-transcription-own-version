@@ -17,12 +17,12 @@ def CreateHdf5File():
                 wav_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[5]))
                 midi_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[4]))
                 print(f"Processing: {wav_file} with {midi_file}")
-                WavSpecAndMidiSegmentor.wav_to_spec(wav_file, midi_file, "hdf5Files/train_hdf5_file")
+                WavSpecAndMidiSegmentor.wav_to_spec(wav_file, midi_file, "hdf5Files/train_hdf5_file.h5")
             elif line[2] == "test":
                 wav_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[5]))
                 midi_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[4]))
                 print(f"Processing: {wav_file} with {midi_file}")
-                WavSpecAndMidiSegmentor.wav_to_spec(wav_file, midi_file, "hdf5Files/test_hdf5_file")
+                WavSpecAndMidiSegmentor.wav_to_spec(wav_file, midi_file, "hdf5Files/test_hdf5_file.h5")
             elif line[2] == "validation":
                 wav_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[5]))
                 midi_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[4]))
@@ -31,7 +31,7 @@ def CreateHdf5File():
     pass
 
 
-def ReadAndPrintHdf5File(hdf5_path="hdf5Files/train_hdf5_file"):
+def ReadAndPrintHdf5File(hdf5_path="hdf5Files/train_hdf5_file.h5"):
     with h5py.File(hdf5_path, 'r') as hdf5_file:
         for key in hdf5_file.keys():
             print(f"Key: {key}")
@@ -41,5 +41,6 @@ def ReadAndPrintHdf5File(hdf5_path="hdf5Files/train_hdf5_file"):
     pass
 
 if __name__ == "__main__":
+    
     #CreateHdf5File()
     ReadAndPrintHdf5File()

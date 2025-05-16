@@ -15,6 +15,7 @@ import tqdm
 
 def midi_to_targets(midi, num_frames, segment_start_time, segment_duration):
     onset_targets = np.zeros((num_frames, 88), dtype=np.float32)
+    offset_targets = np.zeros((num_frames, 88), dtype=np.float32)
     frame_targets = np.zeros((num_frames, 88), dtype=np.float32)
     velocity_targets = np.zeros((num_frames, 88), dtype=np.float32)
 
@@ -38,9 +39,13 @@ def midi_to_targets(midi, num_frames, segment_start_time, segment_duration):
             onset_targets[start_frame, pitch_index] = 1.0
             velocity_targets[start_frame, pitch_index] = note.velocity / 127.0
 
+        if 0 <= end_frame < num_frames:
+            offset_targets[end_frame, pitch_index] = 1.0
+
         frame_targets[start_frame:end_frame, pitch_index] = 1.0
 
-    return onset_targets, frame_targets, velocity_targets
+    return onset_targets, offset_targets, frame_targets, velocity_targets
+
 
 
 def wav_to_spec(wav_file, midi_file, hdf5_path, segment_duration=config.secment_length, sr=config.sample_rate, segment_index_start=0):
@@ -86,8 +91,9 @@ def wav_to_spec(wav_file, midi_file, hdf5_path, segment_duration=config.secment_
                 mel_spectrogram = mel_spectrogram[:, :expected_shape[1]]
 
 
-            onset, frame, velocity = midi_to_targets(
+            onset, offset, frame, velocity = midi_to_targets(
                 midi, num_frames, segment_start_time, segment_duration)
+
 
             group_name = f"{wav_file}_segment_{current_segment}"
             if group_name in hdf5_file:
@@ -99,6 +105,8 @@ def wav_to_spec(wav_file, midi_file, hdf5_path, segment_duration=config.secment_
             segment_group.create_dataset('onset', data=onset, compression="gzip")
             segment_group.create_dataset('frame', data=frame, compression="gzip")
             segment_group.create_dataset('velocity', data=velocity, compression="gzip")
+            segment_group.create_dataset('offset', data=offset, compression="gzip")
+
 
             current_segment += 1
 
