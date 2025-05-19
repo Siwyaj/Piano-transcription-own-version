@@ -181,29 +181,77 @@ def bce(output, target, mask):
     return torch.sum(matrix * mask) / torch.sum(mask)
 
 # Your loss calculation combining heads
+import torch.nn.functional as F
+
 def compute_loss(output_dict, target_dict):
-    onset_loss = bce(output_dict['onset_output'], target_dict['onset'], torch.ones_like(target_dict['onset']))
-    offset_loss = bce(output_dict['offset_output'], target_dict['offset'], torch.ones_like(target_dict['offset']))
-    frame_loss = bce(output_dict['frame_output'], target_dict['frame'], torch.ones_like(target_dict['frame']))
-    velocity_loss = bce(output_dict['velocity_output'], target_dict['velocity'] / 128.0, target_dict['onset'])
+    # Onset and offset: binary classification (use BCE with logits)
+    pos_weight = torch.tensor([10.0], device=output_dict['onset_output'].device)  # Tune 10.0 as needed
+    onset_loss = F.binary_cross_entropy_with_logits(
+        output_dict['onset_output'], target_dict['onset'], pos_weight=pos_weight
+    )
 
-    total_loss = onset_loss + offset_loss + frame_loss + velocity_loss
+    
+    offset_loss = F.binary_cross_entropy_with_logits(
+        output_dict['offset_output'], target_dict['offset']
+    )
 
-    loss_dict = {
+    # Velocity: regression (normalize to 0–1, use MSE)
+    velocity_loss = F.mse_loss(
+        torch.sigmoid(output_dict['velocity_output']),  # optional sigmoid if targets are [0,1]
+        target_dict['velocity'] / 128.0
+    )
+
+    # Frame: multi-label classification → use BCE with logits
+    frame_loss = F.binary_cross_entropy_with_logits(
+        output_dict['frame_output'], target_dict['frame']
+    )
+
+    # Total loss
+    total_loss = onset_loss + offset_loss + velocity_loss + frame_loss
+
+    # Return both total and individual losses
+    return total_loss, {
         'onset': onset_loss.item(),
         'offset': offset_loss.item(),
-        'frame': frame_loss.item(),
-        'velocity': velocity_loss.item()
+        'velocity': velocity_loss.item(),
+        'frame': frame_loss.item()
     }
 
-    return total_loss, loss_dict
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Apply sigmoid to get probabilities
+        inputs = torch.clamp(inputs, 1e-7, 1 - 1e-7)
+        inputs = torch.sigmoid(inputs)
+
+        # BCE loss
+        bce = -targets * torch.log(inputs) - (1 - targets) * torch.log(1 - inputs)
+
+        # Focal factor
+        pt = inputs * targets + (1 - inputs) * (1 - targets)
+        focal_weight = (1 - pt) ** self.gamma
+        loss = self.alpha * focal_weight * bce
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        else:
+            return loss.sum()
 
 
 
-
-def train(model, dataloader, optimizer, device, epochs=5):
+def train(model, dataloader, optimizer, device, epochs=30):
     model.train()
-    focal_loss = FocalLoss()
+    #focal_loss = FocalLoss()
     for epoch in range(epochs):
         progress = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
         for mel, targets in progress:
@@ -240,19 +288,61 @@ def train(model, dataloader, optimizer, device, epochs=5):
     #dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
 
 
+def train_onset(model, dataloader, optimizer, device, epochs=5):
+    model.train()
     
+    #worked with 5 epochs
+    bce = nn.BCELoss()
+
+    #added folcal loss
+    #focal_loss = FocalLoss(alpha=0.25, gamma=2.0)
+
+
+
+    for epoch in range(epochs):
+        progress = tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
+        for mel, labels in progress:
+            mel = mel.to(device)
+            onset_target = labels["onset"].to(device)
+
+            optimizer.zero_grad()
+            onset_pred = model(mel)
+            
+            #5 epochs
+            loss = bce(onset_pred, onset_target)
+            
+            #added focal loss
+            #loss = focal_loss(onset_pred, onset_target)
+
+            loss.backward()
+            optimizer.step()
+
+            # Optionally calculate a simple F1 or accuracy
+            with torch.no_grad():
+                pred_bin = (onset_pred > 0.1).float()
+                tp = (pred_bin * onset_target).sum()
+                fp = (pred_bin * (1 - onset_target)).sum()
+                fn = ((1 - pred_bin) * onset_target).sum()
+                f1 = 2 * tp / (2 * tp + fp + fn + 1e-8)
+
+            progress.set_postfix({
+                'Loss': f"{loss.item():.4f}",
+                'F1': f"{f1.item():.4f}"
+            })
+
 
 if __name__ == "__main__":
     # Example usage
     from models.NewModel import CRNNModel2
     from DataLoader.PrepareDataFromHdf5 import DataLoaderHdf5
-
+    from models.stoldenArchitecture import MultiTaskCRNN
+    from models.OnlyOnset import OnsetOnlyCRNN
 
     # Initialize model, optimizer, and dataloader
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CRNNModel2().to(device)
+    model = OnsetOnlyCRNN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    dataloader = DataLoaderHdf5("hdf5Files/train_hdf5_file.h5")
+    dataloader = DataLoaderHdf5("hdf5Files/train_hdf5_file.h5", max_samples=None)
     for mel, targets in dataloader:
         print("Onset mean:", targets["onset"].mean().item())
         print("Offset mean:", targets["offset"].mean().item())
@@ -260,5 +350,10 @@ if __name__ == "__main__":
         break
 
     # Train the model
-    train(model, dataloader, optimizer, device=device)
+    #train(model, dataloader, optimizer, device=device)
+    train_onset(model, dataloader, optimizer, device=device, epochs=75)
     torch.save(model.state_dict(), "crnn_model_final.pth")
+    #TO DO
+    #add validation to model
+    #add test to model
+    #transfer model architecture to new script

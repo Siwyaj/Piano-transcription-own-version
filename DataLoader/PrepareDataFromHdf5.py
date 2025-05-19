@@ -8,10 +8,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 class PianoTranscriptionDataset(torch.utils.data.Dataset):
-    def __init__(self, hdf5_path):
+    def __init__(self, hdf5_path, max_samples=None):
         self.hdf5_path = hdf5_path
         with h5py.File(hdf5_path, 'r') as f:
             self.keys = list(f.keys())
+        
+        if max_samples is not None:
+            self.keys = self.keys[:max_samples]
 
     def __len__(self):
         return len(self.keys)
@@ -50,14 +53,18 @@ class PianoTranscriptionDataset(torch.utils.data.Dataset):
 
 
 
-def DataLoaderHdf5(hdf5_path="hdf5Files/train_hdf5_file", batch_size=16, shuffle=True, num_workers=8):
-    dataset = PianoTranscriptionDataset(hdf5_path)
+def DataLoaderHdf5(hdf5_path="hdf5Files/train_hdf5_file", batch_size=64, shuffle=True, num_workers=16, pin_memory=True, persistent_workers=True, max_samples=None):
+    print("Loading HDF5 file:", hdf5_path)
+    print("Batch size:", batch_size)
+    print("num_workers:", num_workers)
+    print("pin_memory:", pin_memory)
+    dataset = PianoTranscriptionDataset(hdf5_path, max_samples=max_samples)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     return dataloader
 
 
 if __name__ == "__main__":
-    dataloader = DataLoaderHdf5("hdf5Files/train_hdf5_file")
+    dataloader = DataLoaderHdf5("hdf5Files/train_hdf5_file.h5")
     for mel, labels in dataloader:
         print("Mel shape:", mel.shape)
         print("Onset shape:", labels["onset"].shape)

@@ -19,9 +19,9 @@ class CRNNModel2(nn.Module):
         self.gru1 = nn.GRU(input_size=256, hidden_size=hidden_size, num_layers=2, batch_first=True, bidirectional=True)
         
         # Output layers for different types of predictions
-        self.onset_fc = nn.Linear(hidden_size * 2, 1)  # Regression for onset (continuous)
-        self.offset_fc = nn.Linear(hidden_size * 2, 1)  # Regression for offset (continuous)
-        self.velocity_fc = nn.Linear(hidden_size * 2, 1)  # Regression for velocity (continuous)
+        self.onset_fc = nn.Linear(hidden_size * 2, num_classes)  # Regression for onset (continuous)
+        self.offset_fc = nn.Linear(hidden_size * 2, num_classes)  # Regression for offset (continuous)
+        self.velocity_fc = nn.Linear(hidden_size * 2, num_classes)  # Regression for velocity (continuous)
         self.frame_fc = nn.Linear(hidden_size * 2, num_classes)  # Classification for frame-wise output (discrete)
 
         # Dropout for regularization
