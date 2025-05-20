@@ -65,18 +65,21 @@ def wav_to_spec(wav_file, midi_file, hdf5_path, segment_duration=config.secment_
             segment_start_time = i * segment_duration
 
             audio_segment = y[start_sample:end_sample]
-            mel_spectrogram = librosa.feature.melspectrogram(
-                y=audio_segment, sr=sr,
-                n_fft=config.window_size,
-                hop_length=hop_length,
-                n_mels=config.mel_bins
-            )
-            mel_spectrogram = librosa.power_to_db(mel_spectrogram)
-            num_frames = mel_spectrogram.shape[1]
+            #mel_spectrogram = librosa.feature.melspectrogram(
+            #    y=audio_segment, sr=sr,
+            #    n_fft=config.window_size,
+            #    hop_length=hop_length,
+            #    n_mels=config.mel_bins
+            #)
+            #mel_spectrogram = librosa.power_to_db(mel_spectrogram)
+
+            cqt = librosa.cqt(y=audio_segment, sr=sr, hop_length=hop_length, n_bins=88, bins_per_octave=12)
+            spectrogram = librosa.amplitude_to_db(np.abs(cqt))
+            num_frames = spectrogram.shape[1]
 
             # Ensure mel_spectrogram shape is (256, 1001)
             expected_shape = (config.mel_bins, 1001)
-            mel_bins, time_bins = mel_spectrogram.shape
+            mel_bins, time_bins = spectrogram.shape
 
             if mel_bins != config.mel_bins:
                 tqdm.tqdm.write(f"Warning: Unexpected mel bin count: {mel_bins}, expected {config.mel_bins}")

@@ -1,0 +1,34 @@
+import h5py
+import numpy as np
+import matplotlib.pyplot as plt
+import librosa.display
+
+def plot_cqt_with_onsets(hdf5_path, file_group_name="file_0", segment_name="segment_0", sr=16000, hop_length=512):
+    with h5py.File(hdf5_path, "r") as f:
+        grp = f[file_group_name][segment_name]
+        
+        cqt_db = grp["cqt"][:]  # CQT spectrogram in dB
+        label = grp["label"][:]  # MIDI labels: [start, end, pitch]
+        segment_start = grp.attrs["start"]
+
+    plt.figure(figsize=(14, 6))
+    
+    # Plot CQT spectrogram
+    librosa.display.specshow(cqt_db, sr=sr, x_axis='time', y_axis='cqt_note', hop_length=hop_length)
+    plt.colorbar(format="%+2.0f dB")
+    plt.title(f"CQT Spectrogram with MIDI Onsets (Segment start: {segment_start:.2f}s)")
+
+    # Extract note onsets (relative to segment start)
+    note_onsets = label[:, 0] - segment_start
+    
+    # Overlay note onset markers
+    for onset in note_onsets:
+        if 0 <= onset <= cqt_db.shape[1] * hop_length / sr:  # Make sure onset is in segment range
+            plt.axvline(onset, color='g', linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.show()
+
+# Example usage:
+hdf5_path = "HDF5/train.hdf5"
+plot_cqt_with_onsets(hdf5_path)

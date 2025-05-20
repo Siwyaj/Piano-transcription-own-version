@@ -16,7 +16,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from preprocessing.WavSpecAndMidiSegmentor import wav_to_spec
+#from preprocessing.WavSpecAndMidiSegmentor import wav_to_spec
 '''
 This scrit is the main script for the project, it contains the calls for each step of the pipepline.
 These include:
@@ -24,15 +24,23 @@ These include:
 
 '''
 
-from preprocessing.CreateHdf5File import CreateHdf5File
+#from preprocessing.CreateHdf5File import CreateHdf5File
 
 
 if __name__ == "__main__":
 
+    #from preprocessing.newnewmakeHDF5 import create_hdf5
     #make the hdf5 file
-    CreateHdf5File("hdf5Files/train_hdf5_file")
+    #CreateHdf5File("hdf5Files/train_hdf5_file")
+
+    #make the tfrecord file
+    #create_hdf5()
 
     #dataloading
+
+    #train new model
+    from newModelTraining.train import train
+    train()
 
 
 
