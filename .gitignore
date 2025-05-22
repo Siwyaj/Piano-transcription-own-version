@@ -402,3 +402,6 @@ FodyWeavers.xsd
 *.mid
 *.wav
 *.wave
+*.tfrecord
+*.h5
+*.hdf5
