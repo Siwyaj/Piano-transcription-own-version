@@ -405,3 +405,4 @@ FodyWeavers.xsd
 *.tfrecord
 *.h5
 *.hdf5
+*.pth

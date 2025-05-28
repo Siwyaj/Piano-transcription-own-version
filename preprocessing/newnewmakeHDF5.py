@@ -16,6 +16,7 @@ def encode_midi_to_label(midi_file, sr, segment_start, segment_end):
         for note in instrument.notes:
             if segment_start <= note.start < segment_end:
                 outputs.append([note.start, note.end, note.pitch])
+                #print(f"ouput shape: {outputs[-1]}")
     outputs.sort(key=lambda x: x[0])
     return np.array(outputs, dtype=np.float32)
 
@@ -55,34 +56,6 @@ def process_and_store(wav_file, midi_file, h5_group, segment_duration=config.seg
         segment_idx += 1 
 
 
-    """
-    total_duration = librosa.get_duration(y=audio, sr=sr)
-    This privously split the audio into segments and compute CQT for each segment
-    instead for new paper, we will compute CQT for the whole audio and then split it into segments
-    for start in np.arange(0, total_duration - segment_duration, segment_duration):
-        end = start + segment_duration
-        start_sample = int(start * sr)
-        end_sample = int(end * sr)
-        audio_segment = audio[start_sample:end_sample]
-        cqt_segment = librosa.cqt(audio_segment, sr=sr, hop_length=config.hop_len, n_bins=config.n_bins, bins_per_octave=config.bins_per_octave)
-        #print(f"cqt shape: {cqt_segment.shape}")
-        cqt_mag = np.abs(cqt_segment)
-        cqt_db = librosa.amplitude_to_db(cqt_mag, ref=np.max)
-
-        #print(f"[{os.path.basename(wav_file)}] Segment {segment_idx}: CQT shape = {cqt_db.shape}")
-
-
-        label = encode_midi_to_label(midi_file, sr, start, end)
-
-        grp = h5_group.create_group(f"segment_{segment_idx}")
-        #grp.create_dataset("audio", data=audio_segment, dtype=np.float32)
-        grp.create_dataset("cqt", data=cqt_db.astype(np.float32), compression="gzip")  # Store CQT here
-        grp.create_dataset("label", data=label, dtype=np.float32)
-        grp.attrs["start"] = start
-        grp.attrs["end"] = end
-        segment_idx += 1
-        """
-
 def create_hdf5():
     csv_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", 'dataset', 'maestro-v3.0.0', 'maestro-v3.0.0.csv'))
 
@@ -91,16 +64,16 @@ def create_hdf5():
     os.makedirs(output_dir, exist_ok=True)
 
     h5_files = {
-        'train': h5py.File(os.path.join(output_dir, 'onetrain.hdf5'), 'w'),
-        'test': h5py.File(os.path.join(output_dir, 'onetest.hdf5'), 'w'),
-        'validation': h5py.File(os.path.join(output_dir, 'onevalidation.hdf5'), 'w')
+        'train': h5py.File(os.path.join(output_dir, 't_101_n_10train.hdf5'), 'w'),
+        'test': h5py.File(os.path.join(output_dir, 't_101_n_10test.hdf5'), 'w'),
+        'validation': h5py.File(os.path.join(output_dir, 't_101_n_10validation.hdf5'), 'w')
     }
 
     with open(csv_file_path, 'r', encoding='utf-8') as csv_file:
         csv_reader = csv.reader(csv_file)
         csv_lines = list(csv_reader)
 
-        for i, line in enumerate(tqdm(csv_lines[1:2])):  # Limit for testing
+        for i, line in enumerate(tqdm(csv_lines[1:10])):  # Limit for testing #n
             split = line[2]
             if split in h5_files:
                 wav_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[5]))

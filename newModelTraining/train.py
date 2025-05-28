@@ -101,89 +101,153 @@ import torch.optim as optim
 from sklearn.metrics import precision_score, recall_score, f1_score
 from tqdm import tqdm
 
-def train(onsetModel, wholeModel, dataloader, epochs=100, device='cuda'):
-    model.to(device)
+import torch
+import torch.nn.functional as F
+
+def onset_and_frames_loss(pitch_logits, frame_logits, pitch_labels, frame_labels, model=None):
+    """
+    pitch_logits, frame_logits: (batch_size, time_steps, 88)
+    pitch_labels, frame_labels: same shape, binary or float targets
+    model: torch.nn.Module, used to apply L2 regularization (optional)
+    """
+
+    # Ensure inputs are float32 and flattened
+    pitch_logits = pitch_logits.reshape(-1, 88).float()
+    frame_logits = frame_logits.reshape(-1, 88).float()
+    pitch_labels = pitch_labels.reshape(-1, 88).float()
+    frame_labels = frame_labels.reshape(-1, 88).float()
+
+    # Binary labels for pitch (convert to 0/1)
+    binary_pitch_labels = (pitch_labels > 0.0).float()
+
+    pitch_labels_pos_weight = compute_batch_pos_weight(pitch_labels)
+    frame_labels_pos_weight = compute_batch_pos_weight(frame_labels)
+
+    # BCE with logits loss (default pos_weight = 1)
+    pitch_loss = F.binary_cross_entropy_with_logits(pitch_logits, binary_pitch_labels, reduction='none', pos_weight=pitch_labels_pos_weight)
+    frame_loss = F.binary_cross_entropy_with_logits(frame_logits, frame_labels, reduction='none', pos_weight=frame_labels_pos_weight)
+
+    # Mean over pitch dimension (axis=2), sum over batch and time
+    pitch_loss = pitch_loss.mean(dim=1).sum()
+    frame_loss = frame_loss.mean(dim=1).sum()
+
+    # L2 Regularization (if model is provided)
+    l2_loss = 0.0
+    if model is not None:
+        for param in model.parameters():
+            if param.requires_grad:
+                l2_loss += torch.sum(param ** 2)
+        l2_loss = 1e-4 * l2_loss  # Adjust weight as needed
+
+    total_loss = pitch_loss + frame_loss + l2_loss
+
+    return total_loss
+
+def compute_batch_pos_weight(labels):
+    pos = (labels == 1).sum().float()
+    neg = (labels == 0).sum().float()
+    if pos == 0:
+        return torch.tensor(1.0).to(labels.device)  # avoid divide-by-zero
+    return neg / (pos + 1e-6)
+
+def train_onset_only(model, dataloader, epochs=100, device='cuda'):
+    onsetModel.to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss()
+    #criterion = nn.BCEWithLogitsLoss()
+    onsetModel.train()
 
-    model.train()
     for epoch in range(epochs):
+        if epoch % 50 == 0:
+            model_save_path = f'models/onset_only_model_total_epoch={epochs}_current_epoch={epoch}_n=10.pth'
+            torch.save(model.state_dict(), model_save_path)
         total_loss = 0
-        all_precisions = []
-        all_recalls = []
-        all_f1s = []
-        
-
-        for cqt, label in dataloader:
+        all_precisions, all_recalls, all_f1s = [], [], []
+        for cqt, onsetLabel, sustainlabel in tqdm(dataloader):
             cqt = cqt.to(device)
-            label = label.to(device)
-            if label.sum() == 0:
-                continue  # Skip batches with no positive labels
-
-            label_down = label[:, ::4, :]      # Downsample time axis
-            label_down = label_down[:, 4:-3, :]  # Crop time axis
-            #print("Label shape:", label_down.shape)
-
-            #print("Label sum:", label.sum().item(), "Label_down sum:", label_down.sum().item())
-
-            preds = model(cqt)  # Output shape: (batch, T, 88)
-            loss = criterion(preds, label_down.float())
+            onsetLabel = onsetLabel.to(device)
 
             optimizer.zero_grad()
+
+            # Forward pass
+            logits = model(cqt)
+            
+            #pos_weight = compute_batch_pos_weight(onsetLabel).to(cqt.device)
+            #loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+            loss_fn = nn.BCEWithLogitsLoss()  # Use standard BCE loss
+            loss = loss_fn(logits, onsetLabel.float())
+
+            l2_loss = 0.0
+            for param in model.parameters():
+                if param.requires_grad:
+                    l2_loss += torch.sum(param ** 2)
+            l2_loss = 1e-4 * l2_loss
+            loss += l2_loss
             loss.backward()
             optimizer.step()
-
             total_loss += loss.item()
-            #print("Preds min/max:", preds.min().item(), preds.max().item())
-
-            # --- Compute metrics ---
             with torch.no_grad():
-                pred_binary = (torch.sigmoid(preds) > 0.2).float()
-                label_flat = label_down.cpu().numpy().reshape(-1, 88)
-                pred_flat = pred_binary.cpu().numpy().reshape(-1, 88)
-                for i in range(88):  # per-pitch average (optional, or do macro avg)
-                    if label_flat[:, i].sum() > 0:
-                        p = precision_score(label_flat[:, i], pred_flat[:, i], zero_division=0)
-                        r = recall_score(label_flat[:, i], pred_flat[:, i], zero_division=0)
-                        f1 = f1_score(label_flat[:, i], pred_flat[:, i], zero_division=0)
-
+                preds = torch.sigmoid(logits)
+                #print(f"max: {preds.max().item()}, min: {preds.min().item()}, mean: {preds.mean().item()}")
+                preds_bin = (preds > 0.5).float()
+                y_true = onsetLabel.cpu().numpy().reshape(-1, 88)
+                y_pred = preds_bin.cpu().numpy().reshape(-1, 88)
+                for i in range(88):
+                    if y_true[:, i].sum() > 0:
+                        p = precision_score(y_true[:, i], y_pred[:, i], zero_division=0)
+                        r = recall_score(y_true[:, i], y_pred[:, i], zero_division=0)
+                        f1 = f1_score(y_true[:, i], y_pred[:, i], zero_division=0)
                         all_precisions.append(p)
                         all_recalls.append(r)
                         all_f1s.append(f1)
-        
         avg_loss = total_loss / len(dataloader)
         avg_precision = sum(all_precisions) / len(all_precisions) if all_precisions else 0
         avg_recall = sum(all_recalls) / len(all_recalls) if all_recalls else 0
         avg_f1 = sum(all_f1s) / len(all_f1s) if all_f1s else 0
-
         print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Precision: {avg_precision:.4f} | Recall: {avg_recall:.4f} | F1: {avg_f1:.4f}")
+        
+        write_to_log(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Precision: {avg_precision:.4f} | Recall: {avg_recall:.4f} | F1: {avg_f1:.4f}")
 
-
-
-
+def write_to_log(string):
+    with open('log.txt', 'a') as f:
+        f.write(string + '\n')
+    #print(string)
 
 
 if __name__ == "__main__":
     import config
     from torch.utils.data import DataLoader
 
-    dataset = PianoDataset('HDF5/onetrain.hdf5')
+    dataset = PianoDataset('HDF5/t_101_n_10train.hdf5')
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
-    cqt, label = dataset[0]
-    ratios = []
-    
-    for cqt, label in dataset:
-        pos_count = (label == 1).sum().item()
-        neg_count = (label == 0).sum().item()
+    cqt, onsetlabel, sustain = dataset[0]
+    onsetration = []
+    sustainratio = []
+    for cqt, onsetlabel, sustainlabel in dataset:
+        pos_count = (onsetlabel == 1).sum().item()
+        neg_count = (onsetlabel == 0).sum().item()
         ratio = pos_count / (pos_count + neg_count)
-        ratios.append(ratio)
-    ratio = sum(ratios) / len(ratios)
-    print(f"Positive ratio: {ratio:.4f}")
-    print("Sample label sum:", label.sum().item())  # should be > 0 if there are notes
-    print("Label shape:", label.shape)
+        onsetration.append(ratio)
+        pos_count = (sustainlabel == 1).sum().item()
+        neg_count = (sustainlabel == 0).sum().item()
+        ratio = pos_count / (pos_count + neg_count)
+        sustainratio.append(ratio)
+    ratio = sum(sustainratio) / len(sustainratio)
+    print(f"sustainratio Positive ratio: {ratio:.4f}")
+    ratio = sum(onsetration) / len(onsetration)
+    print(f"onsetlabel Positive ratio: {ratio:.4f}")
+
+    
 
     #model = OnsetOnlyCRNN(n_bins=config.n_bins, n_pitches=config.n_pitches)
     onsetModel = TAwareModel()
-    wholeModel = WholeModel()
-    model = WholeModel
-    train(onsetModel, wholeModel, dataloader, epochs=1000)
+    #wholeModel = WholeModel()
+    #model = WholeModel
+    epochs = 1000
+    #train_joint(onsetModel, wholeModel, dataloader, epochs=epochs)
+    train_onset_only(onsetModel, dataloader, epochs=epochs)
+    #save models
+    #sustain_model_save_path = f'models/sustain_model_epoch={epochs}_n=50.pth'
+    pitch_model_save_path = f'models/highest_offset_pitch_onset_weight_only_model_epoch={epochs}_n=10.pth'
+    
+    #torch.save(wholeModel.state_dict(), sustain_model_save_path)
+    torch.save(onsetModel.state_dict(), pitch_model_save_path)

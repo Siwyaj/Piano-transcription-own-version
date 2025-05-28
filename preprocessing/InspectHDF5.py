@@ -16,7 +16,7 @@ def plot_cqt_with_onsets_all(hdf5_path, sr=config.sample_rate, hop_length=config
                 
                 cqt_db = segment["cqt"][:]  # CQT spectrogram in dB
                 print(f"cqt_db shape: {cqt_db.shape}")
-                label = segment["label"][:]  # MIDI labels: [start, end, pitch]
+                label = segment["onset_label"][:]  # MIDI labels: [start, end, pitch]
                 segment_start = segment.attrs["start"]
 
                 if label.shape[0] == 0:
@@ -39,6 +39,20 @@ def plot_cqt_with_onsets_all(hdf5_path, sr=config.sample_rate, hop_length=config
                 plt.tight_layout()
                 plt.show()
 
+def print_hdf5_structure(hdf5_path):
+    with h5py.File(hdf5_path, "r") as f:
+        def print_group(name, obj):
+            if isinstance(obj, h5py.Group):
+                print(f"Group: {name}")
+                for key in obj.keys():
+                    print_group(f"{name}/{key}", obj[key])
+            elif isinstance(obj, h5py.Dataset):
+                print(f"Dataset: {name}, shape: {obj.shape}, dtype: {obj.dtype}")
+
+        f.visititems(print_group)
 # Example usage
 hdf5_path = "HDF5/onetrain.hdf5"
-plot_cqt_with_onsets_all(hdf5_path)
+#plot_cqt_with_onsets_all(hdf5_path)
+hdf5_path = "HDF5/t_101_n_10train.hdf5"
+print_hdf5_structure(hdf5_path)
+
