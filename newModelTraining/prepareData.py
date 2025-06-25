@@ -39,46 +39,41 @@ import h5py
 import numpy as np
 import config
 
+
 class PianoDataset(Dataset):
     def __init__(self, hdf5_path, label_type='both'):
         """
         label_type: 'onset', 'sustain', or 'both'
         """
-        self.h5 = h5py.File(hdf5_path, 'r')
-        self.samples = []
+        self.hdf5_path = hdf5_path
         self.label_type = label_type
+        self.samples = []
 
-        for file_key in self.h5.keys():
-            for seg_key in self.h5[file_key].keys():
-                self.samples.append(f"{file_key}/{seg_key}")
+        with h5py.File(self.hdf5_path, 'r') as h5:
+            for file_key in h5.keys():
+                for seg_key in h5[file_key].keys():
+                    self.samples.append(f"{file_key}/{seg_key}")
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
         segment_path = self.samples[idx]
-        grp = self.h5[segment_path]
-        
-        # Load CQT and normalize
-        cqt = grp['cqt'][()]  # shape: (freq_bins, time_frames)
-        cqt = np.log1p(np.abs(cqt))
-        cqt_tensor = torch.tensor(cqt, dtype=torch.float32).unsqueeze(0)  # (1, freq_bins, time_frames)
+        file_key, seg_key = segment_path.split("/")
 
-        # Load label(s)
-        if self.label_type == 'onset':
-            label = grp['onset_label'][()]  # (time_frames, 88)
-        elif self.label_type == 'sustain':
-            label = grp['sustain_label'][()]  # (time_frames, 88)
-        elif self.label_type == 'both':
-            onset = grp['onset_label'][()]
-            sustain = grp['sustain_label'][()]
-            label = np.stack([onset, sustain], axis=0)  # (2, time_frames, 88)
-        else:
-            raise ValueError(f"Unsupported label_type: {self.label_type}")
+        with h5py.File(self.hdf5_path, 'r') as h5:
+            grp = h5[file_key][seg_key]
 
-        label_tensor = torch.tensor(label, dtype=torch.float32)
+            # Load CQT and normalize
+            cqt = grp['cqt'][()]  # (freq_bins, time_frames)
+            cqt = np.log1p(np.abs(cqt))
+            cqt_tensor = torch.tensor(cqt, dtype=torch.float32).unsqueeze(0)  # (1, freq_bins, time_frames)
 
-        onset_label = grp['onset_label'][()]
-        sustain_label = grp['sustain_label'][()]
+            # Load label(s)
+            onset_label = grp['onset_label'][()]
+            sustain_label = grp['sustain_label'][()]
 
-        return cqt_tensor, onset_label, sustain_label
+        onset_tensor = torch.tensor(onset_label, dtype=torch.float32)
+        sustain_tensor = torch.tensor(sustain_label, dtype=torch.float32)
+
+        return cqt_tensor, onset_tensor, sustain_tensor

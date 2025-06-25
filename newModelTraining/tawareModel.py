@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 print(torch.__version__)
 class TAwareModel(nn.Module):
     def __init__(self):
@@ -9,23 +10,30 @@ class TAwareModel(nn.Module):
         # Conv layers: (in_channels, out_channels, kernel_size, stride=1, padding=0)
         # We want output shapes matching described dimensions, so no padding.
         self.conv1 = nn.Conv2d(1, 8, kernel_size=(5,3)) 
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=(5,3), padding='same') 
+        self.bn1 = nn.BatchNorm2d(8)
         
+
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=(5,3), padding='same') 
+        self.bn2 = nn.BatchNorm2d(16)
+
         # Pool: 2x2 with stride (1,2)
         self.pool1 = nn.MaxPool2d(kernel_size=(2,2), stride=(2,1))
         self.pool_pad = nn.ZeroPad2d((0, 1, 0, 0))
 
         self.conv3 = nn.Conv2d(16, 32, kernel_size=(5,3))
+        self.bn3 = nn.BatchNorm2d(32)
         self.conv4 = nn.Conv2d(32, 64, kernel_size=(5,3))
+        self.bn4 = nn.BatchNorm2d(64)
         
         self.pool2 = nn.MaxPool2d(kernel_size=(2,2), stride=(2,1))
         
         self.conv5 = nn.Conv2d(64, 128, kernel_size=(5,3))
+        self.bn5 = nn.BatchNorm2d(128)
         
         # After conv5, reshape to (T, 10240)
         # Then linear layer to 1024
         self.fc1 = nn.Linear(80 * 128, 1024)
-        
+        self.dropout = nn.Dropout(p=0.5)
         # BiLSTM: input size 1024, hidden size 512, bidirectional
         self.bilstm = nn.LSTM(input_size=1024, hidden_size=512, bidirectional=True, batch_first=True)
         
@@ -37,7 +45,11 @@ class TAwareModel(nn.Module):
         
         x = self.conv1(x)
         #print(f"After conv1: {x.shape}")  # Debugging line
+        x = self.bn1(x)
+        x = F.relu(x)
         x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
         #print(f"After conv2: {x.shape}")
         x = self.pool1(x)
         #print(f"After pool1: {x.shape}")
@@ -45,14 +57,20 @@ class TAwareModel(nn.Module):
         #print(f"After pool1 and pool_pad: {x.shape}")
 
         x = self.conv3(x)
+        x = self.bn3(x)
+        x = F.relu(x)
         #print(f"After conv3: {x.shape}")
         x = self.conv4(x)
+        x = self.bn4(x)
+        x = F.relu(x)
         #print(f"After conv4: {x.shape}")
         x = self.pool2(x)
         x = self.pool_pad(x)
         #print(f"After pool2 and pool_pad: {x.shape}")
 
         x = self.conv5(x)
+        x = self.bn5(x)
+        x = F.relu(x)
         #print(f"After conv5: {x.shape}")
         
         # x: (batch, channels=128, freq=80, time=101)
@@ -63,11 +81,13 @@ class TAwareModel(nn.Module):
 
         # Flatten last two dims: 128 * 80 = 10240
         x = x.reshape(x.size(0), x.size(1), -1)  # (batch, time, 10240)
+        x = self.dropout(x)  # Apply dropout
         #print(f"After reshape: {x.shape}")
 
         
         # Dense layer per timestep
         x = self.fc1(x)  # (batch, T, 1024)
+        x = self.dropout(x)
         #print(f"After fc: {x.shape}")
         
         # BiLSTM expects input (batch, seq_len, input_size)
@@ -79,7 +99,6 @@ class TAwareModel(nn.Module):
         
         attack_logits = self.attack_fc(x)  # (batch, T, 88)
         #print(f"Final output shape: {attack_logits.shape}")
-        
         return attack_logits
 
 # Example usage:

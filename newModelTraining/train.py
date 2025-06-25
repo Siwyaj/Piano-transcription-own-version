@@ -150,11 +150,11 @@ def compute_batch_pos_weight(labels):
         return torch.tensor(1.0).to(labels.device)  # avoid divide-by-zero
     return neg / (pos + 1e-6)
 
-def train_onset_only(model, dataloader, epochs=100, device='cuda'):
-    onsetModel.to(device)
+def train_onset_only(model, dataloader_train, dataloader_val, epochs=100, device='cuda'):
+    model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     #criterion = nn.BCEWithLogitsLoss()
-    onsetModel.train()
+    model.train()
 
     for epoch in range(epochs):
         if epoch % 50 == 0:
@@ -162,7 +162,7 @@ def train_onset_only(model, dataloader, epochs=100, device='cuda'):
             torch.save(model.state_dict(), model_save_path)
         total_loss = 0
         all_precisions, all_recalls, all_f1s = [], [], []
-        for cqt, onsetLabel, sustainlabel in tqdm(dataloader):
+        for cqt, onsetLabel, sustainlabel in tqdm(dataloader_train):
             cqt = cqt.to(device)
             onsetLabel = onsetLabel.to(device)
 
@@ -199,14 +199,66 @@ def train_onset_only(model, dataloader, epochs=100, device='cuda'):
                         all_precisions.append(p)
                         all_recalls.append(r)
                         all_f1s.append(f1)
-        avg_loss = total_loss / len(dataloader)
+        avg_loss = total_loss / len(dataloader_train)
         avg_precision = sum(all_precisions) / len(all_precisions) if all_precisions else 0
         avg_recall = sum(all_recalls) / len(all_recalls) if all_recalls else 0
         avg_f1 = sum(all_f1s) / len(all_f1s) if all_f1s else 0
+        print("Training:")
         print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Precision: {avg_precision:.4f} | Recall: {avg_recall:.4f} | F1: {avg_f1:.4f}")
-        
-        write_to_log(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Precision: {avg_precision:.4f} | Recall: {avg_recall:.4f} | F1: {avg_f1:.4f}")
+        write_to_log(f"[train] Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Precision: {avg_precision:.4f} | Recall: {avg_recall:.4f} | F1: {avg_f1:.4f}")
 
+
+                # Validation
+        model.eval()
+        val_loss = 0
+        val_precisions, val_recalls, val_f1s = [], [], []
+
+        with torch.no_grad():
+            for cqt, onsetLabel, sustainLabel in dataloader_val:
+                cqt = cqt.to(device)
+                onsetLabel = onsetLabel.to(device)
+
+                logits = model(cqt)
+                loss_fn = nn.BCEWithLogitsLoss()
+                loss = loss_fn(logits, onsetLabel.float())
+
+                # Add L2 regularization
+                l2_loss = 0.0
+                for param in model.parameters():
+                    if param.requires_grad:
+                        l2_loss += torch.sum(param ** 2)
+                l2_loss = 1e-4 * l2_loss
+                loss += l2_loss
+
+                val_loss += loss.item()
+
+                preds = torch.sigmoid(logits)
+                preds_bin = (preds > 0.5).float()
+                y_true = onsetLabel.cpu().numpy().reshape(-1, 88)
+                y_pred = preds_bin.cpu().numpy().reshape(-1, 88)
+
+                for i in range(88):
+                    if y_true[:, i].sum() > 0:
+                        p = precision_score(y_true[:, i], y_pred[:, i], zero_division=0)
+                        r = recall_score(y_true[:, i], y_pred[:, i], zero_division=0)
+                        f1 = f1_score(y_true[:, i], y_pred[:, i], zero_division=0)
+                        val_precisions.append(p)
+                        val_recalls.append(r)
+                        val_f1s.append(f1)
+
+        avg_val_loss = val_loss / len(dataloader_val)
+        avg_val_precision = sum(val_precisions) / len(val_precisions) if val_precisions else 0
+        avg_val_recall = sum(val_recalls) / len(val_recalls) if val_recalls else 0
+        avg_val_f1 = sum(val_f1s) / len(val_f1s) if val_f1s else 0
+
+        print("Validation:")
+        print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_val_loss:.4f} | Precision: {avg_val_precision:.4f} | Recall: {avg_val_recall:.4f} | F1: {avg_val_f1:.4f}")
+        write_to_log(f"[VAL] Epoch {epoch+1}/{epochs} | Loss: {avg_val_loss:.4f} | Precision: {avg_val_precision:.4f} | Recall: {avg_val_recall:.4f} | F1: {avg_val_f1:.4f}")
+
+        model.train()
+
+
+        
 def write_to_log(string):
     with open('log.txt', 'a') as f:
         f.write(string + '\n')
@@ -217,8 +269,16 @@ if __name__ == "__main__":
     import config
     from torch.utils.data import DataLoader
 
-    dataset = PianoDataset('HDF5/t_101_n_10train.hdf5')
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
+    dataset_train = PianoDataset('HDF5/tolerance+-5_t_101_n_10train.hdf5')
+    dataloader_train = DataLoader(dataset_train, batch_size=8, shuffle=True)
+    dataset_val = PianoDataset('HDF5/tolerance+-5_t_101_n_2val.hdf5')
+    dataloader_val = DataLoader(dataset_val, batch_size=8, shuffle=True)
+
+    dataset_test = PianoDataset('HDF5/tolerance+-5_t_101_n_5test.hdf5')
+    dataloader_test = DataLoader(dataset_test, batch_size=8, shuffle=True)
+    '''
+    
+    
     cqt, onsetlabel, sustain = dataset[0]
     onsetration = []
     sustainratio = []
@@ -235,19 +295,24 @@ if __name__ == "__main__":
     print(f"sustainratio Positive ratio: {ratio:.4f}")
     ratio = sum(onsetration) / len(onsetration)
     print(f"onsetlabel Positive ratio: {ratio:.4f}")
-
+    '''
     
 
     #model = OnsetOnlyCRNN(n_bins=config.n_bins, n_pitches=config.n_pitches)
+
     onsetModel = TAwareModel()
+
     #wholeModel = WholeModel()
     #model = WholeModel
-    epochs = 1000
     #train_joint(onsetModel, wholeModel, dataloader, epochs=epochs)
-    train_onset_only(onsetModel, dataloader, epochs=epochs)
+
+    epochs = 1000
+
+    train_onset_only(onsetModel, dataloader_train, dataloader_val, epochs=epochs)
+
     #save models
     #sustain_model_save_path = f'models/sustain_model_epoch={epochs}_n=50.pth'
-    pitch_model_save_path = f'models/highest_offset_pitch_onset_weight_only_model_epoch={epochs}_n=10.pth'
+    pitch_model_save_path = f'models/before_exam_epochs={epochs}_n=10.pth'
     
     #torch.save(wholeModel.state_dict(), sustain_model_save_path)
     torch.save(onsetModel.state_dict(), pitch_model_save_path)

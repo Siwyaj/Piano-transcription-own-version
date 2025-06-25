@@ -102,33 +102,50 @@ from tqdm import tqdm
 def create_hdf5():
     csv_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", 'dataset', 'maestro-v3.0.0', 'maestro-v3.0.0.csv'))
 
-    # Prepare HDF5 file for training split only
+    # Prepare HDF5 file
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'HDF5'))
     os.makedirs(output_dir, exist_ok=True)
 
-    h5_file = h5py.File(os.path.join(output_dir, 'tolerance+-5_t_101_n_5train.hdf5'), 'w')
+    h5_file_train = h5py.File(os.path.join(output_dir, 'tolerance+-5_t_101_n_10train.hdf5'), 'w')
+    h5_file_test = h5py.File(os.path.join(output_dir, 'tolerance+-5_t_101_n_5test.hdf5'), 'w')
+    h5_file_val = h5py.File(os.path.join(output_dir, 'tolerance+-5_t_101_n_2val.hdf5'), 'w')
 
-    count = 0
-    max_files = 5
+    h5_files = {
+        'train': h5_file_train,
+        'test': h5_file_test,
+        'validation': h5_file_val
+    }
+
+    limits = {'train': 10, 'test': 5, 'validation': 2}
+    counts = {'train': 0, 'test': 0, 'validation': 0}
 
     with open(csv_file_path, 'r', encoding='utf-8') as csv_file:
         csv_reader = csv.reader(csv_file)
         csv_lines = list(csv_reader)
-
         for i, line in enumerate(csv_lines[1:]):
             split = line[2]
-            if split != 'train':
+
+            if split not in limits or counts[split] >= limits[split]:
                 continue
+
             wav_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[5]))
             midi_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'maestro-v3.0.0', line[4]))
-            print(f"Processing train file {count+1}: {wav_file}")
-            file_group = h5_file.create_group(f"file_{count}")
+
+            print(f"Processing {split} file {counts[split]+1}: {wav_file}")
+
+            group_name = f"file_{counts[split]}"
+            file_group = h5_files[split].create_group(group_name)
             process_and_store(wav_file, midi_file, file_group)
-            count += 1
-            if count >= max_files:
+
+            counts[split] += 1
+
+            # Stop if all limits are reached
+            if all(counts[s] >= limits[s] for s in limits):
                 break
 
-    h5_file.close()
+    h5_file_train.close()
+    h5_file_test.close()
+    h5_file_val.close()
 
 if __name__ == "__main__":
     create_hdf5()
